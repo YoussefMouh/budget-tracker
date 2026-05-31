@@ -139,6 +139,20 @@
     width: 100%; background: #FF9500; color: #fff; border: none;
     padding: 14px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer;
   }
+  .btn-export {
+    width: 100%; background: #007AFF; color: #fff; border: none;
+    padding: 14px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  .btn-export:active { transform: scale(0.98); }
+  .export-zone { background: rgba(0,122,255,0.08); border-radius: 12px; padding: 14px; margin-top: 16px; }
+  .export-zone h4 { color: #007AFF; font-size: 14px; margin-bottom: 6px; font-weight: 600; }
+  .export-zone p { font-size: 12px; color: #8E8E93; margin-bottom: 12px; }
+  .toast {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px);
+    background: #34C759; color: #fff; padding: 12px 24px; border-radius: 24px; font-size: 14px;
+    font-weight: 500; box-shadow: 0 4px 16px rgba(0,0,0,0.2); transition: transform 0.3s; z-index: 200;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
 </style>
 </head>
 <body>
@@ -213,7 +227,7 @@
 
   <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
     <span>Expenses by day</span>
-    <button class="btn-secondary btn-danger" id="reset-btn">↺ Clear all</button>
+    <button class="btn-secondary btn-danger" id="reset-btn">↺ Clear day</button>
   </div>
 
   <div class="day-nav">
@@ -243,11 +257,11 @@
 <!-- Clear confirmation modal -->
 <div class="modal-backdrop" id="modal-clear">
   <div class="modal">
-    <h3>Clear all expenses?</h3>
-    <p>This wipes all logged expenses but keeps your settings. Your cash left resets to your starting balance.</p>
+    <h3 id="modal-clear-title">Clear this day?</h3>
+    <p id="modal-clear-text">This removes all expenses logged on the selected day. Other days stay untouched.</p>
     <div class="modal-actions">
       <button class="cancel" data-close="modal-clear">Cancel</button>
-      <button class="confirm" id="modal-clear-confirm">Clear all</button>
+      <button class="confirm" id="modal-clear-confirm">Clear day</button>
     </div>
   </div>
 </div>
@@ -285,6 +299,13 @@
     <div class="modal-actions">
       <button class="cancel" data-close="modal-settings">Cancel</button>
       <button class="confirm-blue" id="settings-save">Save</button>
+    </div>
+
+    <div class="export-zone">
+      <h4>📤 Export data</h4>
+      <p>Export your cycle data — share with Claude every month for review, or keep as backup.</p>
+      <button class="btn-export" id="btn-copy-summary">📋 Copy summary (paste to Claude)</button>
+      <button class="btn-export" id="btn-download-csv" style="margin-top: 8px;">⬇️ Download CSV file</button>
     </div>
 
     <div class="danger-zone">
@@ -568,10 +589,19 @@ document.querySelectorAll('[data-close]').forEach(btn => {
   btn.addEventListener('click', () => closeModal(btn.getAttribute('data-close')));
 });
 
-// Clear all
-document.getElementById('reset-btn').addEventListener('click', () => openModal('modal-clear'));
+// Clear selected day only
+document.getElementById('reset-btn').addEventListener('click', () => {
+  const activeDate = viewDate || todayISO();
+  const dayCount = state.expenses.filter(e => e.date === activeDate).length;
+  document.getElementById('modal-clear-title').textContent = `Clear ${fmtDate(activeDate)}?`;
+  document.getElementById('modal-clear-text').textContent = dayCount === 0
+    ? 'No expenses on this day to clear.'
+    : `This removes ${dayCount} expense${dayCount === 1 ? '' : 's'} from ${fmtDate(activeDate)}. Other days stay untouched.`;
+  openModal('modal-clear');
+});
 document.getElementById('modal-clear-confirm').addEventListener('click', () => {
-  state.expenses = [];
+  const activeDate = viewDate || todayISO();
+  state.expenses = state.expenses.filter(e => e.date !== activeDate);
   save();
   render();
   closeModal('modal-clear');
@@ -635,6 +665,122 @@ document.getElementById('new-cycle-confirm').addEventListener('click', () => {
   save();
   render();
   closeModal('modal-new-cycle');
+});
+
+// === EXPORT ===
+function showToast(msg) {
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.classList.add('show'), 10);
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 2400);
+}
+
+function buildSummary() {
+  const s = state.settings;
+  const now = new Date();
+  const totalSpent = state.expenses.reduce((sum, e) => sum + e.amt, 0);
+  const cashLeft = s.startBalance - totalSpent;
+  const operatingBudget = s.startBalance - s.savingsTarget;
+  const savedSoFar = Math.max(0, cashLeft - operatingBudget);
+  const savingsPct = Math.min(100, Math.round((savedSoFar / s.savingsTarget) * 100));
+  const daysLeft = Math.max(0, Math.ceil((new Date(s.cycleEnd) - now) / 86400000));
+
+  // Group by category
+  const byCat = {};
+  state.expenses.forEach(e => {
+    byCat[e.cat] = (byCat[e.cat] || 0) + e.amt;
+  });
+  const catSorted = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+
+  // Group by day
+  const byDay = {};
+  state.expenses.forEach(e => {
+    if (!byDay[e.date]) byDay[e.date] = { total: 0, count: 0 };
+    byDay[e.date].total += e.amt;
+    byDay[e.date].count += 1;
+  });
+  const daySorted = Object.entries(byDay).sort((a, b) => a[0].localeCompare(b[0]));
+
+  // All expenses
+  const allSorted = [...state.expenses].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+
+  let out = '📊 BUDGET SUMMARY\n';
+  out += '═══════════════════════════════════\n';
+  out += `Cycle end: ${s.cycleEnd}  ·  Days left: ${daysLeft}\n\n`;
+
+  out += '💰 STATUS\n';
+  out += `Starting balance: ${fmtMoney(s.startBalance)} DH\n`;
+  out += `Total spent: ${fmtMoney(totalSpent)} DH\n`;
+  out += `Cash remaining: ${fmtMoney(cashLeft)} DH\n`;
+  out += `Savings target: ${fmtMoney(s.savingsTarget, 0)} DH\n`;
+  out += `Saved so far: ${fmtMoney(savedSoFar)} DH (${savingsPct}%)\n`;
+  out += `Daily cap: ${s.dailyCap} DH\n\n`;
+
+  out += '📂 BY CATEGORY\n';
+  catSorted.forEach(([cat, amt]) => {
+    const pct = Math.round((amt / totalSpent) * 100);
+    out += `  ${cat}: ${fmtMoney(amt)} DH (${pct}%)\n`;
+  });
+  out += '\n';
+
+  out += '📅 BY DAY\n';
+  daySorted.forEach(([date, info]) => {
+    out += `  ${date}: ${fmtMoney(info.total)} DH (${info.count} expense${info.count === 1 ? '' : 's'})\n`;
+  });
+  out += '\n';
+
+  out += '📝 ALL EXPENSES\n';
+  allSorted.forEach(e => {
+    out += `  ${e.date} · ${e.cat} · ${e.desc} · ${fmtMoney(e.amt)} DH\n`;
+  });
+
+  return out;
+}
+
+function buildCSV() {
+  let csv = 'Date,Category,Description,Amount\n';
+  const sorted = [...state.expenses].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  sorted.forEach(e => {
+    const desc = String(e.desc || '').replace(/"/g, '""');
+    csv += `${e.date},"${e.cat}","${desc}",${e.amt.toFixed(2)}\n`;
+  });
+  return csv;
+}
+
+document.getElementById('btn-copy-summary').addEventListener('click', async () => {
+  const txt = buildSummary();
+  try {
+    await navigator.clipboard.writeText(txt);
+    showToast('✅ Summary copied to clipboard');
+  } catch (err) {
+    // Fallback for older browsers
+    const ta = document.createElement('textarea');
+    ta.value = txt;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showToast('✅ Copied'); }
+    catch (e) { showToast('❌ Copy failed — try CSV download'); }
+    ta.remove();
+  }
+});
+
+document.getElementById('btn-download-csv').addEventListener('click', () => {
+  const csv = buildCSV();
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `budget-${state.settings.cycleEnd}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('⬇️ CSV downloaded');
 });
 
 // Auto-refresh
