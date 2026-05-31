@@ -348,13 +348,13 @@
 </div>
 
 <script>
-const STORAGE_KEY = 'youssef_budget_v2';
+const STORAGE_KEY = 'youssef_budget_v3';
 
 const DEFAULTS = {
-  startBalance: 7782.76,
+  startBalance: 7962.76,
   savingsTarget: 4240,
   dailyCap: 107,
-  cycleEnd: '2026-06-26'
+  cycleEnd: '2026-06-30'
 };
 
 const CATEGORY_ICONS = {
@@ -367,6 +367,21 @@ const CATEGORY_ICONS = {
   'Family': '👨‍👩‍👧',
   'Other': '💸'
 };
+
+const SEED_EXPENSES = [
+  { id: 'seed01', date: '2026-05-26', cat: 'Shopping', desc: 'Shopping', amt: 76.14, icon: '🛒' },
+  { id: 'seed02', date: '2026-05-27', cat: 'Family', desc: 'Credit', amt: 500.00, icon: '👨‍👩‍👧' },
+  { id: 'seed03', date: '2026-05-28', cat: 'Shopping', desc: 'Carte eshopping', amt: 150.00, icon: '🛒' },
+  { id: 'seed04', date: '2026-05-28', cat: 'Food', desc: 'Bim', amt: 26.40, icon: '🥪' },
+  { id: 'seed05', date: '2026-05-28', cat: 'Transport', desc: 'Taxi', amt: 5.00, icon: '🚕' },
+  { id: 'seed06', date: '2026-05-28', cat: 'Other', desc: '1x Ticket raja', amt: 70.00, icon: '💸' },
+  { id: 'seed07', date: '2026-05-29', cat: 'Food', desc: 'Food', amt: 32.00, icon: '🥪' },
+  { id: 'seed08', date: '2026-05-29', cat: 'Drinks/snacks', desc: 'Bim', amt: 32.90, icon: '🥤' },
+  { id: 'seed09', date: '2026-05-29', cat: 'Drinks/snacks', desc: 'Drinks/snacks', amt: 86.90, icon: '🥤' },
+  { id: 'seed10', date: '2026-05-29', cat: 'Transport', desc: 'Transport', amt: 10.00, icon: '🚕' },
+  { id: 'seed11', date: '2026-05-30', cat: 'Transport', desc: 'Transport', amt: 10.00, icon: '🚕' },
+  { id: 'seed12', date: '2026-05-30', cat: 'Other', desc: 'Haircut', amt: 30.00, icon: '💸' }
+];
 
 let state = {
   settings: { ...DEFAULTS },
@@ -383,10 +398,12 @@ function load() {
       state.settings = { ...DEFAULTS, ...(parsed.settings || {}) };
       state.expenses = parsed.expenses || [];
     } else {
+      // Fresh install — seed with historical expenses
+      state.expenses = [...SEED_EXPENSES];
       save();
     }
   } catch (e) {
-    state = { settings: { ...DEFAULTS }, expenses: [] };
+    state = { settings: { ...DEFAULTS }, expenses: [...SEED_EXPENSES] };
   }
 }
 
